@@ -1,0 +1,68 @@
+{
+  "dataset": "arc",
+  "model": "Qwen/Qwen2.5-3B-Instruct",
+  "n_cal": 295,
+  "n_test": 1165,
+  "accuracy": 0.8343347639484978,
+  "temperature": 2.693916853846661,
+  "ece_raw": 0.11965643137925228,
+  "ece_calibrated": 0.031965960947411436,
+  "aurc_raw": 0.0380616701685716,
+  "aurc_calibrated": 0.037610028265031674,
+  "accuracy_at_coverage": {
+    "100%": 0.8343347639484978,
+    "90%": 0.882745471877979,
+    "80%": 0.9227467811158798,
+    "70%": 0.9534313725490197,
+    "50%": 0.9811320754716981
+  },
+  "empirical_coverage": {
+    "lac": {
+      "0.05": {
+        "target_coverage": 0.95,
+        "empirical_coverage": 0.9373,
+        "mean_set_size": 1.3863,
+        "qhat": 0.900487
+      },
+      "0.1": {
+        "target_coverage": 0.9,
+        "empirical_coverage": 0.8936,
+        "mean_set_size": 1.1794,
+        "qhat": 0.773124
+      },
+      "0.2": {
+        "target_coverage": 0.8,
+        "empirical_coverage": 0.7614,
+        "mean_set_size": 0.8446,
+        "qhat": 0.356284
+      }
+    },
+    "aps": {
+      "0.05": {
+        "target_coverage": 0.95,
+        "empirical_coverage": 0.9382,
+        "mean_set_size": 1.5957,
+        "qhat": 0.954814
+      },
+      "0.1": {
+        "target_coverage": 0.9,
+        "empirical_coverage": 0.8695,
+        "mean_set_size": 1.2773,
+        "qhat": 0.8935
+      },
+      "0.2": {
+        "target_coverage": 0.8,
+        "empirical_coverage": 0.7931,
+        "mean_set_size": 1.0979,
+        "qhat": 0.825433
+      }
+    }
+  },
+  "headline": {
+    "coverage": 0.7,
+    "error_full_coverage": 0.16566523605150218,
+    "error_raw": 0.04656862745098034,
+    "error_calibrated": 0.04656862745098034,
+    "sentence": "At 70% coverage, error drops from 16.6% (answer everything) to 4.7% (calibrated confidence gate); raw-confidence gating gives 4.7%."
+  }
+}

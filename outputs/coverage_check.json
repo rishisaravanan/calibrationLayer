@@ -1,0 +1,42 @@
+{
+  "lac": {
+    "0.05": {
+      "target_coverage": 0.95,
+      "empirical_coverage": 0.9373,
+      "mean_set_size": 1.3863,
+      "qhat": 0.900487
+    },
+    "0.1": {
+      "target_coverage": 0.9,
+      "empirical_coverage": 0.8936,
+      "mean_set_size": 1.1794,
+      "qhat": 0.773124
+    },
+    "0.2": {
+      "target_coverage": 0.8,
+      "empirical_coverage": 0.7614,
+      "mean_set_size": 0.8446,
+      "qhat": 0.356284
+    }
+  },
+  "aps": {
+    "0.05": {
+      "target_coverage": 0.95,
+      "empirical_coverage": 0.9382,
+      "mean_set_size": 1.5957,
+      "qhat": 0.954814
+    },
+    "0.1": {
+      "target_coverage": 0.9,
+      "empirical_coverage": 0.8695,
+      "mean_set_size": 1.2773,
+      "qhat": 0.8935
+    },
+    "0.2": {
+      "target_coverage": 0.8,
+      "empirical_coverage": 0.7931,
+      "mean_set_size": 1.0979,
+      "qhat": 0.825433
+    }
+  }
+}

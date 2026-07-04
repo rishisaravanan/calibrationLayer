@@ -1,0 +1,9 @@
+# Full stack: tabular spine + HF LLM scoring (arc / mmlu).
+-r requirements-min.txt
+torch==2.12.1
+transformers==5.13.0
+datasets==5.0.0
+accelerate==1.14.0
+
+# Optional cross-check of the from-scratch conformal code:
+# pip install mapie crepes

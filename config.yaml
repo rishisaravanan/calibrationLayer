@@ -1,0 +1,11 @@
+seed: 42
+dataset: arc            # one of: arc | mmlu | tabular
+model_route: hf         # one of: hf | api
+hf_model: Qwen/Qwen2.5-3B-Instruct
+api_model: null         # e.g. an OpenAI-compatible model id with logprobs
+score_mode: letter      # letter | cloze (cloze = length-normalised option log-likelihood)
+alpha: [0.05, 0.10, 0.20]   # conformal miscoverage levels to sweep
+cal_frac: 0.30          # fraction of eval pool used for calibration if no native split
+coverage_points: 50     # granularity of the risk-coverage curve
+mmlu_subjects: null     # null = all; else list of subject names
+crosscheck: false       # if true, run MAPIE/crepes agreement check

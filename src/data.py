@@ -118,6 +118,52 @@ def load_mmlu(subjects: list[str] | None = None) -> dict:
     }
 
 
+def load_csv(
+    csv_path: str,
+    alphas: list[float],
+    cal_frac: float = 0.30,
+    seed: int = 42,
+    answer_format: str = "auto",
+) -> dict:
+    """Bring-your-own CSV: validate via `custom_csv`, return the ARC dict shape.
+
+    `custom_csv.MCQRecord.answer_idx` maps onto `MCQItem.label_idx`; qids are
+    synthesised (the CSV contract has no id column). K is whatever the file
+    defines (fixed per file) and is surfaced as `n_options` for scoring.
+    The dataset `name` embeds a content hash so two different CSVs never
+    share a score cache.
+    """
+    import hashlib
+    from pathlib import Path
+
+    from . import custom_csv
+
+    cal_recs, ev_recs, k, report = custom_csv.load_custom_dataset(
+        csv_path, alphas, cal_frac=cal_frac, seed=seed, answer_format=answer_format
+    )
+
+    def to_items(recs: list, split: str) -> list[MCQItem]:
+        return [
+            MCQItem(
+                qid=f"{split}/{i}",
+                question=r.question,
+                options=list(r.options),
+                label_idx=r.answer_idx,
+            )
+            for i, r in enumerate(recs)
+        ]
+
+    digest = hashlib.md5(Path(csv_path).read_bytes()).hexdigest()[:8]
+    return {
+        "name": f"csv-{Path(csv_path).stem}-{digest}",
+        "cal": to_items(cal_recs, "cal"),
+        "test": to_items(ev_recs, "test"),
+        "n_dropped": {"cal": 0, "test": 0},  # validation rejects, never drops
+        "n_options": k,
+        "report": report,
+    }
+
+
 def load_tabular(
     seed: int = 42,
     n_samples: int = 20_000,

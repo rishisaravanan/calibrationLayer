@@ -1,15 +1,17 @@
-"""Produce the (N, 4) probability matrix P for MCQ datasets.
+"""Produce the (N, K) probability matrix P for MCQ datasets.
 
 Three routes:
   - hf / letter: one forward pass per question; read next-token logits over
-    the option letters A-D. Fast and exact, but requires each letter to be a
-    single token for the model's tokeniser (asserted loudly).
+    the option letters A, B, ... Fast and exact, but requires each letter to
+    be a single token for the model's tokeniser (verified, with automatic
+    fallback to cloze when it is not — mandatory check for K > 4).
   - hf / cloze: length-normalised log-likelihood of each full option text.
     Slower, model-agnostic fallback.
   - api: OpenAI-compatible endpoint with logprobs over letter tokens.
 
-All results (P, logits, labels, qids) are cached to outputs/cache/ as .npz;
-re-runs never touch the model.
+K (the number of options) is fixed per dataset and comes from the loader,
+never inferred here. All results (P, logits, labels, qids) are cached to
+outputs/cache/ as .npz; re-runs never touch the model.
 """
 from __future__ import annotations
 
@@ -22,21 +24,22 @@ from tqdm import tqdm
 
 from .data import MCQItem
 
-_LETTERS = ["A", "B", "C", "D"]
 
-PROMPT_TEMPLATE = (
-    "The following is a multiple choice question. "
-    "Answer with the letter of the correct option.\n\n"
-    "Question: {question}\n"
-    "A. {a}\nB. {b}\nC. {c}\nD. {d}\n"
-    "Answer:"
-)
+def option_letters(k: int) -> list[str]:
+    """['A', 'B', ...] for K options (K <= 26 by construction)."""
+    assert 2 <= k <= 26, f"K must be in [2, 26], got {k}"
+    return [chr(ord("A") + i) for i in range(k)]
 
 
 def build_prompt(item: MCQItem) -> str:
-    """Render one question into the fixed A-D prompt ending in 'Answer:'."""
-    a, b, c, d = item.options
-    return PROMPT_TEMPLATE.format(question=item.question, a=a, b=b, c=c, d=d)
+    """Render one question into the lettered-options prompt ending in 'Answer:'."""
+    letters = option_letters(len(item.options))
+    lines = "\n".join(f"{l}. {opt}" for l, opt in zip(letters, item.options))
+    return (
+        "The following is a multiple choice question. "
+        "Answer with the letter of the correct option.\n\n"
+        f"Question: {item.question}\n{lines}\nAnswer:"
+    )
 
 
 def cache_path(cache_dir: str | Path, model: str, dataset: str, split: str, mode: str) -> Path:
@@ -59,14 +62,14 @@ def _save_cache(path: Path, P: np.ndarray, logits: np.ndarray, labels: np.ndarra
 
 # ------------------------------------------------------------ HF route -----
 
-def _resolve_letter_ids(tokenizer) -> list[int]:
-    """Token ids for the four letters as they appear after 'Answer:'.
+def _resolve_letter_ids(tokenizer, k: int) -> list[int]:
+    """Token ids for the K option letters as they appear after 'Answer:'.
 
     Prefers the leading-space variant (' A'), falling back to bare 'A'.
     Fails loudly if a letter is not a single token, suggesting cloze mode.
     """
     ids = []
-    for letter in _LETTERS:
+    for letter in option_letters(k):
         for variant in (f" {letter}", letter):
             toks = tokenizer.encode(variant, add_special_tokens=False)
             if len(toks) == 1:
@@ -78,8 +81,38 @@ def _resolve_letter_ids(tokenizer) -> list[int]:
                 "tokeniser; letter-logit scoring is unsound here. "
                 "Set score_mode: cloze in config.yaml instead."
             )
-    assert len(set(ids)) == 4, "letter token ids must be distinct"
+    assert len(set(ids)) == k, "letter token ids must be distinct"
     return ids
+
+
+def letters_are_single_token(tokenizer, k: int) -> bool:
+    """True iff every option letter resolves to a single token."""
+    try:
+        _resolve_letter_ids(tokenizer, k)
+        return True
+    except ValueError:
+        return False
+
+
+def choose_score_mode(tokenizer, k: int, requested: str = "letter") -> str:
+    """Pick the effective scoring mode for this tokeniser and K.
+
+    Letter-logit scoring is only sound if every option letter is a single
+    token. That is checked against the *actual* tokeniser — mandatory for
+    K > 4 (letters beyond D are less likely to be single tokens), and applied
+    to all K so a broken tokeniser degrades to cloze instead of erroring.
+    """
+    if requested == "cloze":
+        return "cloze"
+    if requested != "letter":
+        raise ValueError(f"unknown score_mode: {requested!r} (use 'letter' or 'cloze')")
+    if letters_are_single_token(tokenizer, k):
+        return "letter"
+    print(
+        f"[scoring] letter mode requested but not all of {option_letters(k)} are "
+        "single tokens for this tokeniser; falling back to cloze scoring."
+    )
+    return "cloze"
 
 
 def _hf_load(model_name: str):
@@ -99,17 +132,17 @@ def _hf_load(model_name: str):
     return model, tokenizer, device
 
 
-def _score_hf_letter(items: list[MCQItem], model_name: str, batch_size: int = 8) -> np.ndarray:
-    """(N, 4) raw logits over the letter tokens, one forward pass per batch."""
+def _score_hf_letter(items: list[MCQItem], model_name: str, k: int, batch_size: int = 8) -> np.ndarray:
+    """(N, K) raw logits over the letter tokens, one forward pass per batch."""
     import torch
 
     model, tokenizer, device = _hf_load(model_name)
-    letter_ids = _resolve_letter_ids(tokenizer)
+    letter_ids = _resolve_letter_ids(tokenizer, k)
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
     tokenizer.padding_side = "left"  # keep 'Answer:' adjacent to the next token
 
-    logits_out = np.zeros((len(items), 4), dtype=np.float64)
+    logits_out = np.zeros((len(items), k), dtype=np.float64)
     with torch.no_grad():
         for start in tqdm(range(0, len(items), batch_size), desc=f"scoring ({model_name})"):
             batch = items[start : start + batch_size]
@@ -122,12 +155,12 @@ def _score_hf_letter(items: list[MCQItem], model_name: str, batch_size: int = 8)
     return logits_out
 
 
-def _score_hf_cloze(items: list[MCQItem], model_name: str) -> np.ndarray:
-    """(N, 4) length-normalised option log-likelihoods (act as logits)."""
+def _score_hf_cloze(items: list[MCQItem], model_name: str, k: int) -> np.ndarray:
+    """(N, K) length-normalised option log-likelihoods (act as logits)."""
     import torch
 
     model, tokenizer, device = _hf_load(model_name)
-    scores = np.zeros((len(items), 4), dtype=np.float64)
+    scores = np.zeros((len(items), k), dtype=np.float64)
     with torch.no_grad():
         for i, item in enumerate(tqdm(items, desc=f"cloze scoring ({model_name})")):
             prompt_ids = tokenizer.encode(build_prompt(item), add_special_tokens=False)
@@ -146,8 +179,8 @@ def _score_hf_cloze(items: list[MCQItem], model_name: str) -> np.ndarray:
 
 # ----------------------------------------------------------- API route -----
 
-def _score_api(items: list[MCQItem], api_model: str) -> np.ndarray:
-    """(N, 4) letter logprobs from an OpenAI-compatible endpoint.
+def _score_api(items: list[MCQItem], api_model: str, k: int) -> np.ndarray:
+    """(N, K) letter logprobs from an OpenAI-compatible endpoint.
 
     Reads OPENAI_API_KEY (required) and OPENAI_BASE_URL (optional) from the
     environment. Letters missing from top_logprobs get a floor logprob.
@@ -158,7 +191,8 @@ def _score_api(items: list[MCQItem], api_model: str) -> np.ndarray:
         raise RuntimeError("Set OPENAI_API_KEY in the environment for the api route.")
     client = OpenAI()  # honours OPENAI_BASE_URL if set
 
-    logits = np.full((len(items), 4), -20.0, dtype=np.float64)
+    letters = option_letters(k)
+    logits = np.full((len(items), k), -20.0, dtype=np.float64)
     for i, item in enumerate(tqdm(items, desc=f"scoring ({api_model})")):
         resp = client.chat.completions.create(
             model=api_model,
@@ -171,9 +205,9 @@ def _score_api(items: list[MCQItem], api_model: str) -> np.ndarray:
         top = resp.choices[0].logprobs.content[0].top_logprobs
         for entry in top:
             token = entry.token.strip()
-            if token in _LETTERS:
-                k = _LETTERS.index(token)
-                logits[i, k] = max(logits[i, k], entry.logprob)
+            if token in letters:
+                j = letters.index(token)
+                logits[i, j] = max(logits[i, j], entry.logprob)
     return logits
 
 
@@ -187,14 +221,22 @@ def score_split(
     hf_model: str = "Qwen/Qwen2.5-3B-Instruct",
     api_model: str | None = None,
     score_mode: str = "letter",
+    n_options: int = 4,
     cache_dir: str | Path = "outputs/cache",
 ) -> dict:
     """Score one split, cache-aware. Returns {P, logits, labels, qids}.
 
-    P is the softmax over the four per-option logits; logits are kept raw
-    for temperature scaling.
+    P is the softmax over the K per-option logits; logits are kept raw for
+    temperature scaling. `n_options` (K) comes from the loader — it is fixed
+    per dataset by contract and enforced here, never inferred.
     """
     from .calibration import softmax
+
+    bad = [it.qid for it in items if len(it.options) != n_options]
+    assert not bad, (
+        f"K is fixed per dataset: expected {n_options} options, but items "
+        f"{bad[:5]} differ (dataset {dataset!r})"
+    )
 
     model_name = api_model if model_route == "api" else hf_model
     mode = "api" if model_route == "api" else score_mode
@@ -205,17 +247,27 @@ def score_split(
         return cached
 
     if model_route == "api":
-        logits = _score_api(items, api_model)
-    elif score_mode == "letter":
-        logits = _score_hf_letter(items, hf_model)
-    elif score_mode == "cloze":
-        logits = _score_hf_cloze(items, hf_model)
+        logits = _score_api(items, api_model, n_options)
     else:
-        raise ValueError(f"unknown score_mode: {score_mode!r}")
+        # verify letter single-token-ness against the actual tokeniser before
+        # committing to a mode (falls back to cloze; mandatory check for K > 4)
+        from transformers import AutoTokenizer
+
+        tokenizer = AutoTokenizer.from_pretrained(hf_model)
+        mode = choose_score_mode(tokenizer, n_options, score_mode)
+        if mode != score_mode:
+            path = cache_path(cache_dir, model_name, dataset, split, mode)
+            cached = _load_cache(path)
+            if cached is not None:
+                return cached
+        if mode == "letter":
+            logits = _score_hf_letter(items, hf_model, n_options)
+        else:
+            logits = _score_hf_cloze(items, hf_model, n_options)
 
     labels = np.array([it.label_idx for it in items], dtype=np.int64)
     qids = [it.qid for it in items]
     P = softmax(logits)
-    assert P.shape == (len(items), 4)
+    assert P.shape == (len(items), n_options)
     _save_cache(path, P, logits, labels, qids)
     return {"P": P, "logits": logits, "labels": labels, "qids": np.array(qids)}

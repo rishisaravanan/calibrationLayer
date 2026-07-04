@@ -51,6 +51,16 @@ def _load_llm_matrices(cfg: dict) -> dict:
 
     if cfg["dataset"] == "arc":
         ds = data_mod.load_arc()
+    elif cfg["dataset"] == "csv":
+        if not cfg.get("csv_path"):
+            raise ValueError("dataset: csv requires csv_path in config.yaml")
+        ds = data_mod.load_csv(
+            cfg["csv_path"],
+            cfg["alpha"],
+            cal_frac=cfg["cal_frac"],
+            seed=cfg["seed"],
+            answer_format=cfg.get("answer_format", "auto"),
+        )
     else:
         ds = data_mod.load_mmlu(cfg.get("mmlu_subjects"))
     if any(ds["n_dropped"].values()):
@@ -62,6 +72,7 @@ def _load_llm_matrices(cfg: dict) -> dict:
         hf_model=cfg["hf_model"],
         api_model=cfg.get("api_model"),
         score_mode=cfg.get("score_mode", "letter"),
+        n_options=ds.get("n_options", 4),
         cache_dir=OUTPUTS / "cache",
     )
     cal_scored = score_split(ds["cal"], split="cal", **kwargs)
@@ -94,7 +105,7 @@ def _load_matrices(cfg: dict) -> dict:
             "qids_test": None,
             "items_test": None,
         }
-    if cfg["dataset"] in ("arc", "mmlu"):
+    if cfg["dataset"] in ("arc", "mmlu", "csv"):
         return _load_llm_matrices(cfg)
     raise ValueError(f"unknown dataset: {cfg['dataset']!r}")
 
@@ -121,6 +132,7 @@ def _caught_examples_md(
     rank = np.lexsort((-conf_raw[candidates], set_sizes[candidates] < 2))
     candidates = candidates[rank][:n_examples]
 
+    letters = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
     lines = [
         "# Confidently wrong — and caught\n",
         f"Cases where the base model was wrong with high raw confidence, but the "
@@ -128,7 +140,6 @@ def _caught_examples_md(
         f"or calibrated confidence below the abstention threshold "
         f"({conf_threshold:.3f}, the cutoff for {HEADLINE_COVERAGE:.0%} coverage).\n",
     ]
-    letters = "ABCD"
     for rank, i in enumerate(candidates, 1):
         lines.append(f"## Example {rank}\n")
         if d["items_test"] is not None:

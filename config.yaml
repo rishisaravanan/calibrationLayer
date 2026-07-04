@@ -1,5 +1,7 @@
 seed: 42
-dataset: arc            # one of: arc | mmlu | tabular
+dataset: arc            # one of: arc | mmlu | tabular | csv
+csv_path: null          # required when dataset: csv — a contract-conforming CSV (see src/custom_csv.py)
+answer_format: auto     # csv answer encoding: auto | letter | index0 | index1
 model_route: hf         # one of: hf | api
 hf_model: Qwen/Qwen2.5-3B-Instruct
 api_model: null         # e.g. an OpenAI-compatible model id with logprobs

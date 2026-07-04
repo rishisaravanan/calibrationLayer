@@ -1,5 +1,6 @@
 # Full stack: tabular spine + HF LLM scoring (arc / mmlu).
 -r requirements-min.txt
+gradio==6.19.0
 torch==2.12.1
 transformers==5.13.0
 datasets==5.0.0

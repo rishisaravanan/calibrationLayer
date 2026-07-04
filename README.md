@@ -35,20 +35,40 @@ Split conformal prediction: score every calibration point by how "nonconforming"
 
 | key | default | meaning |
 |---|---|---|
-| `dataset` | `arc` | `arc` \| `mmlu` \| `tabular` (tabular = Covertype spine, no LLM) |
+| `dataset` | `arc` | `arc` \| `mmlu` \| `tabular` (Covertype spine, no LLM) \| `csv` (bring your own) |
+| `csv_path` | `null` | path to a contract-conforming CSV, required when `dataset: csv` |
+| `answer_format` | `auto` | CSV answer encoding: `auto` \| `letter` \| `index0` \| `index1` |
 | `model_route` | `hf` | `hf` (local transformers) \| `api` (OpenAI-compatible logprobs endpoint) |
-| `hf_model` | `Qwen/Qwen2.5-3B-Instruct` | any causal LM whose tokeniser has single-token A–D |
-| `score_mode` | `letter` | `letter` (next-token logits over A–D) \| `cloze` (length-normalised option log-likelihood) |
+| `hf_model` | `Qwen/Qwen2.5-3B-Instruct` | any causal LM (letter scoring needs single-token option letters) |
+| `score_mode` | `letter` | `letter` (next-token logits over the option letters) \| `cloze` (length-normalised option log-likelihood). Letter mode is verified against the tokeniser and falls back to cloze if any letter is not a single token |
 | `alpha` | `[0.05, 0.10, 0.20]` | conformal miscoverage levels to sweep |
 | `cal_frac` | `0.30` | calibration fraction when a dataset has no native split |
 | `crosscheck` | `false` | verify the from-scratch conformal code against MAPIE |
+
+## Bring your own data (CSV)
+
+Any labelled multiple-choice dataset can be calibrated, not just ARC. The contract (full details in [`src/custom_csv.py`](src/custom_csv.py)): a header row with `question`, contiguous option columns `option_a, option_b, ...` (or `option_1, option_2, ...` — K ≥ 2, fixed for the whole file), and `answer` as a letter, 0-based, or 1-based index. The answer encoding is auto-detected but never guessed when ambiguous — 1-based-looking integer answers are rejected unless you pass `answer_format` explicitly.
+
+```csv
+question,option_a,option_b,option_c,option_d,answer
+"Which gas do plants absorb?","oxygen","carbon dioxide","nitrogen","hydrogen",b
+```
+
+Validate a file standalone (all problems reported at once) before spending GPU time on it:
+
+```bash
+python -m src.custom_csv path/to/data.csv --answer-format auto
+```
+
+Then set `dataset: csv` and `csv_path` in `config.yaml` and run the pipeline as usual. Everything downstream of the probability matrix — temperature scaling, conformal sets, risk–coverage — is already K-agnostic, so K > 4 files work end-to-end (with automatic cloze fallback if the model's tokeniser doesn't encode the extra option letters as single tokens).
 
 ## Repo map
 
 ```
 src/
-  data.py         # ARC / MMLU / Covertype loaders (4-option normalisation)
-  scoring.py      # (N, 4) probability matrix from letter logits, cloze, or API — cached
+  data.py         # ARC / MMLU / Covertype / custom-CSV loaders
+  custom_csv.py   # bring-your-own CSV contract: validation + normalised records
+  scoring.py      # (N, K) probability matrix from letter logits, cloze, or API — cached
   calibration.py  # temperature scaling, ECE, reliability data — from scratch
   conformal.py    # split conformal (LAC + APS), the whole guarantee
   selective.py    # risk-coverage, AURC, accuracy@coverage

@@ -13,6 +13,7 @@ python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt        # or requirements-min.txt for the LLM-free tabular spine
 python -m src.pipeline                 # figures + JSON land in outputs/
 pytest                                 # the guarantee, tested
+python app.py                          # local Gradio demo: upload predictions or questions, see ANSWER/DEFER
 ```
 
 First run on `dataset: arc` downloads Qwen2.5-3B-Instruct and scores ~1.5k questions (cached to `outputs/cache/`; re-runs never touch the model). With `dataset: tabular` the whole pipeline runs in under a minute with no torch/transformers at all.
@@ -75,6 +76,7 @@ src/
   plots.py        # the two figures
   crosscheck.py   # optional MAPIE agreement check
   pipeline.py     # end-to-end orchestration
+app.py                 # local Gradio demo (predictions CSV or MCQ CSV -> ANSWER/DEFER)
 notebooks/demo.ipynb   # the same story, narrated
 tests/                 # the claims, encoded as pytest
 ```
